@@ -16,41 +16,11 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 import { getRiskColor, getRiskLevel, screenWallet, isScreeningExpired } from '@/lib/range-screening';
-
-// Demo employee data
-const DEMO_EMPLOYEES = [
-    {
-        id: 'EMP001',
-        name: 'Alice Johnson',
-        wallet: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-        salary: 5000,
-        screeningScore: 85,
-        lastScreened: Math.floor(Date.now() / 1000) - 3600, // 1 hour ago
-        isActive: true,
-    },
-    {
-        id: 'EMP002',
-        name: 'Bob Smith',
-        wallet: '9aE476sH92Vb7W3RFf2JG1b5XHGVAMVVr5cGtcXqZnJd',
-        salary: 6500,
-        screeningScore: 72,
-        lastScreened: Math.floor(Date.now() / 1000) - 7200, // 2 hours ago
-        isActive: true,
-    },
-    {
-        id: 'EMP003',
-        name: 'Carol Williams',
-        wallet: '5vPwBHMLxc3hYTJDaD5VNJwNvDGKJpvADMmQNHR8Lq1C',
-        salary: 4800,
-        screeningScore: 45,
-        lastScreened: Math.floor(Date.now() / 1000) - 90000, // 25 hours ago (expired)
-        isActive: true,
-    },
-];
+import { useEmployees, Employee } from '@/providers/EmployeeProvider';
 
 export default function EmployeesPage() {
     const { publicKey, connected } = useWallet();
-    const [employees, setEmployees] = useState(DEMO_EMPLOYEES);
+    const { employees, addEmployee, updateEmployee } = useEmployees();
     const [searchTerm, setSearchTerm] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [rescreening, setRescreening] = useState<string | null>(null);
@@ -65,11 +35,10 @@ export default function EmployeesPage() {
         setRescreening(employeeId);
         try {
             const result = await screenWallet(wallet);
-            setEmployees(prev => prev.map(emp =>
-                emp.id === employeeId
-                    ? { ...emp, screeningScore: result.score, lastScreened: Math.floor(Date.now() / 1000) }
-                    : emp
-            ));
+            updateEmployee(employeeId, {
+                screeningScore: result.score,
+                lastScreened: Math.floor(Date.now() / 1000)
+            });
         } catch (error) {
             console.error('Rescreening failed:', error);
         } finally {
@@ -249,7 +218,7 @@ export default function EmployeesPage() {
                 <AddEmployeeModal
                     onClose={() => setShowAddModal(false)}
                     onAdd={(employee) => {
-                        setEmployees(prev => [...prev, employee]);
+                        addEmployee(employee);
                         setShowAddModal(false);
                     }}
                 />
@@ -264,7 +233,7 @@ function AddEmployeeModal({
     onAdd
 }: {
     onClose: () => void;
-    onAdd: (employee: typeof DEMO_EMPLOYEES[0]) => void;
+    onAdd: (employee: Employee) => void;
 }) {
     const [formData, setFormData] = useState({
         id: '',

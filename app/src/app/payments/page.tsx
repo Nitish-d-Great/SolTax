@@ -13,42 +13,47 @@ import {
     EyeOff
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { screenWallet, passesScreening } from '@/lib/range-screening';
-
-// Demo employee for payment processing
-const DEMO_EMPLOYEES = [
-    { id: 'EMP001', name: 'Alice Johnson', wallet: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', salary: 5000, screeningScore: 85 },
-    { id: 'EMP002', name: 'Bob Smith', wallet: '9aE476sH92Vb7W3RFf2JG1b5XHGVAMVVr5cGtcXqZnJd', salary: 6500, screeningScore: 72 },
-    { id: 'EMP003', name: 'Carol Williams', wallet: '5vPwBHMLxc3hYTJDaD5VNJwNvDGKJpvADMmQNHR8Lq1C', salary: 4800, screeningScore: 45 },
-];
+import { useEmployees, Employee } from '@/providers/EmployeeProvider';
+import { processSalaryPayment } from '@/lib/shadowwire-client';
+import { TAX_AUTHORITY } from '@/lib/anchor-client';
 
 type PaymentStep = 'select' | 'confirm' | 'processing' | 'success' | 'error';
 
 // Inner component that uses useSearchParams
 function PaymentsContent() {
-    const { publicKey, connected } = useWallet();
+    const { publicKey, connected, signMessage } = useWallet();
     const searchParams = useSearchParams();
     const preselectedEmployee = searchParams.get('employee');
+    const { employees, getEmployee } = useEmployees();
 
     const [step, setStep] = useState<PaymentStep>('select');
-    const [selectedEmployee, setSelectedEmployee] = useState<typeof DEMO_EMPLOYEES[0] | null>(
-        preselectedEmployee
-            ? DEMO_EMPLOYEES.find(e => e.id === preselectedEmployee) || null
-            : null
-    );
+    const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
     const [showAmounts, setShowAmounts] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [txHash, setTxHash] = useState('');
+    const [taxTxHash, setTaxTxHash] = useState('');
+    const [isSimulated, setIsSimulated] = useState(false);
     const [error, setError] = useState('');
+
+    // Set preselected employee when component mounts or employees change
+    useEffect(() => {
+        if (preselectedEmployee && !selectedEmployee) {
+            const employee = getEmployee(preselectedEmployee);
+            if (employee) {
+                setSelectedEmployee(employee);
+            }
+        }
+    }, [preselectedEmployee, employees, getEmployee, selectedEmployee]);
 
     const taxRate = 0.05; // 5%
     const taxAmount = selectedEmployee ? selectedEmployee.salary * taxRate : 0;
     const netSalary = selectedEmployee ? selectedEmployee.salary - taxAmount : 0;
 
     const handleConfirmPayment = async () => {
-        if (!selectedEmployee || !connected) return;
+        if (!selectedEmployee || !connected || !publicKey || !signMessage) return;
 
         setStep('processing');
         setProcessing(true);
@@ -56,20 +61,39 @@ function PaymentsContent() {
 
         try {
             // Step 1: Re-screen wallet before payment
+            console.log('Step 1: Screening employee wallet...');
             const screeningResult = await screenWallet(selectedEmployee.wallet);
 
             if (!passesScreening(screeningResult.score)) {
                 throw new Error(`Wallet screening failed with score ${screeningResult.score}`);
             }
+            console.log('Screening passed with score:', screeningResult.score);
 
-            // Step 2: Simulate payment processing
-            // In production, this would call ShadowWire SDK for confidential transfers
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Step 2: Execute confidential payment via ShadowWire
+            console.log('Step 2: Processing confidential payment via ShadowWire...');
+            const paymentResult = await processSalaryPayment(
+                publicKey.toBase58(),
+                selectedEmployee.wallet,
+                TAX_AUTHORITY.toBase58(),
+                selectedEmployee.salary,
+                taxRate,
+                'SOL',
+                signMessage
+            );
 
-            // Mock transaction hash
-            setTxHash('5UfNmNZeCQRQPKYm2bG...demoTxHash');
+            if (!paymentResult.success) {
+                throw new Error(paymentResult.error || 'Payment failed');
+            }
+
+            console.log('Payment successful!');
+            console.log('Net salary TX:', paymentResult.netSalaryTx);
+            console.log('Tax TX:', paymentResult.taxTx);
+
+            setTxHash(paymentResult.netSalaryTx || 'tx_success');
+            setTaxTxHash(paymentResult.taxTx || '');
             setStep('success');
         } catch (err) {
+            console.error('Payment error:', err);
             setError(err instanceof Error ? err.message : 'Payment failed');
             setStep('error');
         } finally {
@@ -117,7 +141,7 @@ function PaymentsContent() {
                         <h2 className="text-xl font-semibold">Select Employee</h2>
 
                         <div className="space-y-3">
-                            {DEMO_EMPLOYEES.map(employee => (
+                            {employees.map(employee => (
                                 <button
                                     key={employee.id}
                                     onClick={() => setSelectedEmployee(employee)}

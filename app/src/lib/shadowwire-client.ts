@@ -1,299 +1,299 @@
-// ShadowWire SDK wrapper for confidential transfers
-// Using @radr/shadowwire SDK
+'use client';
 
-// NOTE: This is a wrapper around the ShadowWire SDK
-// In production, ensure proper types are used based on SDK documentation
+import { ShadowWireClient, TokenUtils, initWASM, isWASMSupported } from '@radr/shadowwire';
 
-// Token symbols supported
-export type SupportedToken = 'USDC' | 'SOL';
+type SupportedToken = 'USDC' | 'SOL' | 'RADR' | 'ORE' | 'BONK' | 'JIM' | 'GODL' | 'HUSTLE' | 'ZEC' | 'CRT' | 'BLACKCOIN' | 'GIL' | 'ANON' | 'WLFI' | 'USD1' | 'AOL' | 'IQLABS' | 'SANA' | 'POKI' | 'RAIN' | 'HOSICO' | 'SKR';
 
-// We'll use a simple interface since ShadowWire SDK types may vary
-interface ShadowWireClientConfig {
-    debug?: boolean;
-    apiBaseUrl?: string;
+// Singleton client
+let shadowWireClient: ShadowWireClient | null = null;
+let wasmInitialized = true;
+let initPromise: Promise<boolean> | null = null;
+
+export interface TransferResult {
+    success: boolean;
+    transactionId?: string;
+    error?: string;
 }
 
-interface TransferParams {
-    sender: string;
-    recipient: string;
-    amount: number;
+export interface BalanceResult {
+    balance: number;
     token: string;
-    type: 'internal' | 'external';
-    wallet?: { signMessage: (message: Uint8Array) => Promise<Uint8Array> };
 }
 
-interface TransferResult {
-    transactionHash?: string;
-    success?: boolean;
+/**
+ * Initialize ShadowWire WASM and client
+ * Must be called before any transfers
+ */
+export async function initializeShadowWire(): Promise<boolean> {
+    // Return existing promise if initialization is in progress
+    if (initPromise) {
+        return initPromise;
+    }
+
+    // Already initialized
+    if (wasmInitialized && shadowWireClient) {
+        return true;
+    }
+
+    initPromise = (async () => {
+        try {
+            console.log('Initializing ShadowWire...');
+
+            // Check WASM support
+            if (!isWASMSupported()) {
+                console.error('WebAssembly is not supported in this browser');
+                return false;
+            }
+
+            // Initialize WASM
+            console.log('Loading WASM from /wasm/settler_wasm_bg.wasm...');
+            await initWASM('/wasm/settler_wasm_bg.wasm');
+            console.log('WASM loaded successfully!');
+
+            // Create client
+            shadowWireClient = new ShadowWireClient({
+                debug: true
+            });
+
+            wasmInitialized = true;
+            console.log('ShadowWire initialized successfully!');
+            return true;
+        } catch (error) {
+            console.error('Failed to initialize ShadowWire:', error);
+            initPromise = null; // Allow retry
+            return false;
+        }
+    })();
+
+    return initPromise;
 }
 
-// Mock client for environments where SDK is not available
-class MockShadowWireClient {
-    private debug: boolean;
-
-    constructor(config?: ShadowWireClientConfig) {
-        this.debug = config?.debug ?? false;
-    }
-
-    async getBalance(wallet: string, token: string): Promise<number> {
-        if (this.debug) console.log('Mock: getBalance', wallet, token);
-        // Return mock balance
-        return 10000;
-    }
-
-    async deposit(params: { wallet: string; amount: number }): Promise<TransferResult> {
-        if (this.debug) console.log('Mock: deposit', params);
-        return { transactionHash: `mock_deposit_${Date.now()}` };
-    }
-
-    async withdraw(params: { wallet: string; amount: number }): Promise<TransferResult> {
-        if (this.debug) console.log('Mock: withdraw', params);
-        return { transactionHash: `mock_withdraw_${Date.now()}` };
-    }
-
-    async transfer(params: TransferParams): Promise<TransferResult> {
-        if (this.debug) console.log('Mock: transfer', params);
-        return { transactionHash: `mock_transfer_${Date.now()}` };
-    }
-
-    getFeePercentage(token: string): number {
-        return 0.001; // 0.1% fee
-    }
-
-    getMinimumAmount(token: string): number {
-        return token === 'SOL' ? 0.01 : 1;
-    }
+/**
+ * Check if ShadowWire is initialized
+ */
+export function isShadowWireReady(): boolean {
+    return wasmInitialized && shadowWireClient !== null;
 }
 
-// Try to load real SDK, fall back to mock
-let ShadowWireClientClass: typeof MockShadowWireClient;
-try {
-    // Dynamic import to handle cases where SDK might not be installed
-    const sdk = require('@radr/shadowwire');
-    ShadowWireClientClass = sdk.ShadowWireClient;
-} catch {
-    console.warn('ShadowWire SDK not available, using mock client');
-    ShadowWireClientClass = MockShadowWireClient;
-}
-
-// Initialize ShadowWire client
-let shadowWireClient: MockShadowWireClient | null = null;
-
-export function getShadowWireClient(): MockShadowWireClient {
-    if (!shadowWireClient) {
-        shadowWireClient = new ShadowWireClientClass({
-            debug: process.env.NODE_ENV === 'development',
-        });
+/**
+ * Get the ShadowWire client (initialize first if needed)
+ */
+async function getClient(): Promise<ShadowWireClient> {
+    if (!wasmInitialized || !shadowWireClient) {
+        const success = await initializeShadowWire();
+        if (!success || !shadowWireClient) {
+            throw new Error('ShadowWire not initialized');
+        }
     }
     return shadowWireClient;
 }
 
 /**
- * Get confidential balance for a wallet
- * @param wallet - Wallet address
- * @param token - Token symbol (USDC, SOL)
+ * Get balance from ShadowWire confidential account
  */
-export async function getConfidentialBalance(
-    wallet: string,
-    token: SupportedToken = 'USDC'
-): Promise<number> {
+export async function getShadowWireBalance(
+    walletAddress: string,
+    token: SupportedToken = 'SOL'
+): Promise<BalanceResult> {
     try {
-        const client = getShadowWireClient();
-        const balance = await client.getBalance(wallet, token);
-        // Handle case where balance might be an object
-        if (typeof balance === 'object' && balance !== null) {
-            return (balance as { amount?: number }).amount ?? 0;
-        }
-        return typeof balance === 'number' ? balance : 0;
+        const client = await getClient();
+        const balance = await client.getBalance(walletAddress, token);
+        return {
+            balance: typeof balance === 'number' ? balance : parseFloat(balance as any) || 0,
+            token
+        };
     } catch (error) {
-        console.error('Failed to get confidential balance:', error);
-        return 0;
+        console.error('Error getting ShadowWire balance:', error);
+        return { balance: 0, token };
     }
 }
 
 /**
- * Deposit funds into confidential account
- * @param wallet - Wallet address
- * @param amount - Amount in token units (e.g., 100 = 100 USDC)
- * @param signMessage - Wallet sign message function
+ * Deposit funds into ShadowWire confidential account
  */
-export async function depositToConfidential(
-    wallet: string,
+export async function depositToShadowWire(
+    walletAddress: string,
     amount: number,
-    signMessage: (message: Uint8Array) => Promise<Uint8Array>
-): Promise<{ success: boolean; txHash?: string; error?: string }> {
+    token: SupportedToken = 'SOL'
+): Promise<TransferResult> {
     try {
-        const client = getShadowWireClient();
-
-        // Convert to smallest unit (USDC has 6 decimals)
-        const amountSmallest = Math.floor(amount * 1e6);
+        const client = await getClient();
+        const amountSmallest = TokenUtils.toSmallestUnit(amount, token);
 
         const response = await client.deposit({
-            wallet,
-            amount: amountSmallest,
+            wallet: walletAddress,
+            amount: amountSmallest
         });
 
         return {
             success: true,
-            txHash: response.transactionHash,
+            transactionId: (response as any)?.id || (response as any)?.transactionId || 'deposit_success'
         };
     } catch (error) {
-        console.error('Deposit failed:', error);
+        console.error('Deposit error:', error);
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: error instanceof Error ? error.message : 'Deposit failed'
         };
     }
 }
 
 /**
- * Withdraw from confidential account to regular SPL account
+ * Execute confidential transfer using ShadowWire
+ * This is the core function for private payments
  */
-export async function withdrawFromConfidential(
-    wallet: string,
+export async function executeConfidentialTransfer(
+    senderWallet: string,
+    recipientWallet: string,
     amount: number,
+    token: SupportedToken = 'SOL',
     signMessage: (message: Uint8Array) => Promise<Uint8Array>
-): Promise<{ success: boolean; txHash?: string; error?: string }> {
+): Promise<TransferResult> {
     try {
-        const client = getShadowWireClient();
+        console.log('Executing confidential transfer:');
+        console.log('  From:', senderWallet);
+        console.log('  To:', recipientWallet);
+        console.log('  Amount:', amount, token);
 
-        const amountSmallest = Math.floor(amount * 1e6);
+        const client = await getClient();
 
-        const response = await client.withdraw({
-            wallet,
-            amount: amountSmallest,
-        });
+        // Calculate fee
+        const feeBreakdown = client.calculateFee(amount, token);
+        console.log('  Fee:', feeBreakdown);
 
-        return {
-            success: true,
-            txHash: response.transactionHash,
-        };
-    } catch (error) {
-        console.error('Withdrawal failed:', error);
-        return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-        };
-    }
-}
-
-/**
- * Execute confidential transfer (internal transfer with ZK proofs)
- * This is the core function for payroll - amounts are hidden via Bulletproofs
- */
-export async function confidentialTransfer(
-    sender: string,
-    recipient: string,
-    amount: number,
-    token: SupportedToken,
-    signMessage: (message: Uint8Array) => Promise<Uint8Array>
-): Promise<{ success: boolean; txHash?: string; error?: string }> {
-    try {
-        const client = getShadowWireClient();
-
+        // Execute internal (private) transfer with ZK proofs
         const result = await client.transfer({
-            sender,
-            recipient,
-            amount,
-            token,
-            type: 'internal', // Internal = amount hidden via ZK proofs
-            wallet: { signMessage },
+            sender: senderWallet,
+            recipient: recipientWallet,
+            amount: amount,
+            token: token,
+            type: 'internal', // Internal = amount hidden with Bulletproof ZK proofs
+            wallet: { signMessage }
         });
+
+        console.log('Transfer result:', result);
 
         return {
             success: true,
-            txHash: result.transactionHash,
+            transactionId: (result as any)?.id || (result as any)?.transactionId || 'tx_success'
         };
     } catch (error) {
-        console.error('Confidential transfer failed:', error);
+        console.error('Confidential transfer error:', error);
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: error instanceof Error ? error.message : 'Transfer failed'
         };
     }
 }
 
 /**
- * Process payroll payment - sends tax and net salary confidentially
+ * Process salary payment with tax deduction
+ * Sends net salary to employee and tax to authority via confidential transfers
  */
-export async function processPayrollPayment(
+export async function processSalaryPayment(
     employerWallet: string,
     employeeWallet: string,
     taxAuthorityWallet: string,
-    salary: number,
-    taxAmount: number,
+    grossSalary: number,
+    taxRate: number,
+    token: SupportedToken = 'SOL',
     signMessage: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<{
     success: boolean;
-    taxTxHash?: string;
-    salaryTxHash?: string;
+    netSalaryTx?: string;
+    taxTx?: string;
     error?: string;
 }> {
-    // Calculate net salary
-    const netSalary = salary - taxAmount;
+    const taxAmount = grossSalary * taxRate;
+    const netSalary = grossSalary - taxAmount;
 
-    // Step 1: Send tax to tax authority (confidential)
-    const taxResult = await confidentialTransfer(
-        employerWallet,
-        taxAuthorityWallet,
-        taxAmount,
-        'USDC',
-        signMessage
-    );
-
-    if (!taxResult.success) {
-        return {
-            success: false,
-            error: `Tax payment failed: ${taxResult.error}`,
-        };
-    }
-
-    // Step 2: Send net salary to employee (confidential)
-    const salaryResult = await confidentialTransfer(
-        employerWallet,
-        employeeWallet,
-        netSalary,
-        'USDC',
-        signMessage
-    );
-
-    if (!salaryResult.success) {
-        // Note: In production, this should be atomic
-        // For now, we return error but tax was already sent
-        return {
-            success: false,
-            taxTxHash: taxResult.txHash,
-            error: `Salary payment failed after tax was sent: ${salaryResult.error}`,
-        };
-    }
-
-    return {
-        success: true,
-        taxTxHash: taxResult.txHash,
-        salaryTxHash: salaryResult.txHash,
-    };
-}
-
-/**
- * Get fee information for transfers
- */
-export function getTransferFee(amount: number, token: SupportedToken): number {
-    const client = getShadowWireClient();
-    const feePercentage = client.getFeePercentage(token);
-    return amount * feePercentage;
-}
-
-/**
- * Check if WASM is supported for client-side proof generation
- */
-export function isClientSideProofSupported(): boolean {
-    if (typeof window === 'undefined') return false;
+    console.log('Processing salary payment:');
+    console.log('  Gross Salary:', grossSalary, token);
+    console.log('  Tax Amount:', taxAmount, token);
+    console.log('  Net Salary:', netSalary, token);
 
     try {
-        // Check for WebAssembly support
-        return typeof WebAssembly === 'object' &&
-            typeof WebAssembly.instantiate === 'function';
-    } catch {
-        return false;
+        // Ensure ShadowWire is initialized
+        const initialized = await initializeShadowWire();
+        if (!initialized) {
+            throw new Error('Failed to initialize ShadowWire');
+        }
+
+        // Step 1: Send net salary to employee (confidential)
+        console.log('Step 1: Sending net salary to employee...');
+        const netResult = await executeConfidentialTransfer(
+            employerWallet,
+            employeeWallet,
+            netSalary,
+            token,
+            signMessage
+        );
+
+        if (!netResult.success) {
+            throw new Error(`Net salary transfer failed: ${netResult.error}`);
+        }
+        console.log('Net salary sent! TX:', netResult.transactionId);
+
+        // Step 2: Send tax to tax authority (confidential)
+        console.log('Step 2: Sending tax to authority...');
+        const taxResult = await executeConfidentialTransfer(
+            employerWallet,
+            taxAuthorityWallet,
+            taxAmount,
+            token,
+            signMessage
+        );
+
+        if (!taxResult.success) {
+            throw new Error(`Tax transfer failed: ${taxResult.error}`);
+        }
+        console.log('Tax sent! TX:', taxResult.transactionId);
+
+        return {
+            success: true,
+            netSalaryTx: netResult.transactionId,
+            taxTx: taxResult.transactionId
+        };
+    } catch (error) {
+        console.error('Salary payment error:', error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Payment processing failed'
+        };
     }
 }
+
+/**
+ * Get fee information for a token
+ */
+export async function getTokenFeeInfo(token: SupportedToken = 'SOL') {
+    try {
+        const client = await getClient();
+        return {
+            feePercentage: client.getFeePercentage(token),
+            minimumAmount: client.getMinimumAmount(token),
+            token
+        };
+    } catch {
+        // Default fees if not initialized
+        return {
+            feePercentage: token === 'SOL' ? 0.5 : 1,
+            minimumAmount: 0.001,
+            token
+        };
+    }
+}
+
+/**
+ * Check if wallet has enough balance for payment
+ */
+export async function checkSufficientBalance(
+    walletAddress: string,
+    requiredAmount: number,
+    token: SupportedToken = 'SOL'
+): Promise<boolean> {
+    const { balance } = await getShadowWireBalance(walletAddress, token);
+    return balance >= requiredAmount;
+}
+
+export { shadowWireClient, TokenUtils };
