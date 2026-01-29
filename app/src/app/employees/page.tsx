@@ -35,8 +35,9 @@ export default function EmployeesPage() {
         setRescreening(employeeId);
         try {
             const result = await screenWallet(wallet);
+            // Store riskScore (1-10) in screeningScore field
             updateEmployee(employeeId, {
-                screeningScore: result.score,
+                screeningScore: result.riskScore ?? result.score / 10, // Use riskScore if available, otherwise convert from legacy score
                 lastScreened: Math.floor(Date.now() / 1000)
             });
         } catch (error) {
@@ -142,7 +143,7 @@ export default function EmployeesPage() {
                                         <td>
                                             <div className="flex items-center gap-2">
                                                 <span className={`px-2 py-1 rounded-full text-xs font-medium risk-${riskLevel}`}>
-                                                    {employee.screeningScore}/100
+                                                    {employee.screeningScore}/10
                                                 </span>
                                                 {expired && (
                                                     <span className="text-xs text-yellow-500 flex items-center gap-1">
@@ -174,10 +175,10 @@ export default function EmployeesPage() {
                                                 >
                                                     <RefreshCw className={`h-4 w-4 ${rescreening === employee.id ? 'animate-spin' : ''}`} />
                                                 </button>
-                                                {employee.screeningScore < 50 ? (
+                                                {employee.screeningScore > 6 ? (
                                                     <div
                                                         className="p-2 rounded-lg bg-red-500/20 text-red-400 cursor-not-allowed flex items-center gap-1"
-                                                        title="Cannot pay - Risk score too low"
+                                                        title="Cannot pay - Risk score too high"
                                                     >
                                                         <AlertCircle className="h-4 w-4" />
                                                         <span className="text-xs">Risky</span>
@@ -210,15 +211,15 @@ export default function EmployeesPage() {
                 <div className="flex flex-wrap gap-4 mt-6 text-sm text-gray-400">
                     <div className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full bg-green-500"></span>
-                        Low Risk (70-100)
+                        Low Risk (1-2)
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
-                        Medium Risk (40-69)
+                        Medium Risk (3-6)
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full bg-red-500"></span>
-                        High Risk (0-39)
+                        High Risk (7-10)
                     </div>
                 </div>
             </main>
@@ -271,15 +272,16 @@ function AddEmployeeModal({
         setScreening({ score: 0, status: 'loading' });
         try {
             const result = await screenWallet(formData.wallet);
+            const riskScore = result.riskScore ?? (result.score / 10); // Use riskScore (1-10) if available
             setScreening({
-                score: result.score,
+                score: riskScore,
                 status: 'done',
                 isMock: result.mock || result.fallback,
                 isError: result.error
             });
 
-            if (result.score < 50) {
-                setError('Wallet screening failed: score below threshold of 50');
+            if (riskScore > 6) {
+                setError('Wallet screening failed: risk score above threshold of 6');
             } else {
                 setError('');
             }
@@ -292,7 +294,7 @@ function AddEmployeeModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (screening.status !== 'done' || screening.score < 50) {
+        if (screening.status !== 'done' || screening.score > 6) {
             setError('Please complete wallet screening first');
             return;
         }
@@ -302,7 +304,7 @@ function AddEmployeeModal({
             name: formData.name,
             wallet: formData.wallet,
             salary: parseFloat(formData.salary),
-            screeningScore: screening.score,
+            screeningScore: screening.score, // Store riskScore (1-10)
             lastScreened: Math.floor(Date.now() / 1000),
             isActive: true,
         });
@@ -363,15 +365,15 @@ function AddEmployeeModal({
                         </div>
 
                         {screening.status === 'done' && (
-                            <div className={`mt-2 p-3 rounded-lg ${screening.score >= 50 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                            <div className={`mt-2 p-3 rounded-lg ${screening.score <= 6 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                        {screening.score >= 50 ? (
+                                        {screening.score <= 6 ? (
                                             <CheckCircle className="h-5 w-5 text-green-500" />
                                         ) : (
                                             <AlertCircle className="h-5 w-5 text-red-500" />
                                         )}
-                                        <span>Screening Score: {screening.score}/100</span>
+                                        <span>Risk Score: {screening.score}/10</span>
                                     </div>
                                     <span className={`text-xs px-2 py-1 rounded-full ${screening.isMock
                                         ? 'bg-yellow-500/20 text-yellow-400'
@@ -410,7 +412,7 @@ function AddEmployeeModal({
                         <button
                             type="submit"
                             className="btn-primary flex-1"
-                            disabled={screening.status !== 'done' || screening.score < 50}
+                            disabled={screening.status !== 'done' || screening.score > 6}
                         >
                             Add Employee
                         </button>

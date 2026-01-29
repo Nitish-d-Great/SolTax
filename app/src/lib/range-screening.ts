@@ -3,7 +3,8 @@
 
 export interface ScreeningResult {
     address: string;
-    score: number;
+    score: number; // Legacy 0-100 scale for backward compatibility
+    riskScore?: number; // Range API riskScore (1-10 scale, where 10 is highest risk)
     riskLevel: 'low' | 'medium' | 'high';
     details: {
         sanctioned: boolean;
@@ -51,6 +52,7 @@ export async function screenWallet(walletAddress: string): Promise<ScreeningResu
         return {
             address: walletAddress,
             score: 50,
+            riskScore: 5, // Medium risk default
             riskLevel: 'medium',
             details: {
                 sanctioned: false,
@@ -63,20 +65,21 @@ export async function screenWallet(walletAddress: string): Promise<ScreeningResu
 }
 
 /**
- * Get risk level from score
+ * Get risk level from riskScore (1-10 scale from Range API)
+ * <=2 = low risk, >2 & <=6 = medium risk, >6 = high risk
  */
-export function getRiskLevel(score: number): 'low' | 'medium' | 'high' {
-    if (score >= 70) return 'low';
-    if (score >= 40) return 'medium';
+export function getRiskLevel(riskScore: number): 'low' | 'medium' | 'high' {
+    if (riskScore <= 2) return 'low';
+    if (riskScore <= 6) return 'medium';
     return 'high';
 }
 
 /**
- * Get risk color for UI
+ * Get risk color for UI based on riskScore (1-10 scale)
  */
-export function getRiskColor(score: number): string {
-    if (score >= 70) return 'green';
-    if (score >= 40) return 'yellow';
+export function getRiskColor(riskScore: number): string {
+    if (riskScore <= 2) return 'green';
+    if (riskScore <= 6) return 'yellow';
     return 'red';
 }
 
@@ -91,7 +94,9 @@ export function isScreeningExpired(lastScreenedTimestamp: number): boolean {
 
 /**
  * Check if wallet passes minimum screening threshold
+ * Uses riskScore (1-10) where lower is better
+ * Default threshold is 6 (medium risk or lower)
  */
-export function passesScreening(score: number, threshold: number = 50): boolean {
-    return score >= threshold;
+export function passesScreening(riskScore: number, threshold: number = 6): boolean {
+    return riskScore <= threshold;
 }

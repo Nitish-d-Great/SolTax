@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
 const RANGE_API_URL = 'https://api.range.org/v1';
 
@@ -20,9 +22,8 @@ export async function POST(request: NextRequest) {
             return mockResponse(walletAddress);
         }
 
-        // Call real Range API - it's a GET request with query params
-        const url = `${RANGE_API_URL}/address?address=${encodeURIComponent(walletAddress)}&network=${blockchain}`;
-
+        // Call real Range API
+        const url = `${RANGE_API_URL}/risk/address?address=${encodeURIComponent(walletAddress)}&network=${blockchain}`;
         console.log('Calling Range API:', url);
 
         const response = await fetch(url, {
@@ -30,39 +31,31 @@ export async function POST(request: NextRequest) {
             headers: {
                 'Accept': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
-                'X-API-Key': apiKey,
             },
         });
 
         console.log('Range API response status:', response.status);
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Range API error:', response.status, errorText);
-
-            // Try alternate endpoint format
-            const altUrl = `${RANGE_API_URL}/screen/address?address=${encodeURIComponent(walletAddress)}&chain=${blockchain}`;
-            console.log('Trying alternate endpoint:', altUrl);
-
-            const altResponse = await fetch(altUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`,
-                    'X-API-Key': apiKey,
-                },
-            });
-
-            if (!altResponse.ok) {
-                console.error('Alternate endpoint also failed:', altResponse.status);
-                return mockResponse(walletAddress, true, response.status);
-            }
-
-            const altData = await altResponse.json();
-            return parseRangeResponse(walletAddress, altData);
+            console.error('Range API failed:', response.status);
+            return mockResponse(walletAddress, true, response.status);
         }
 
         const data = await response.json();
+
+        // SAVE RAW RESPONSE TO FILE for inspection/debugging
+        try {
+            const dataDir = path.join(process.cwd(), 'src/data/range-responses');
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+            const filePath = path.join(dataDir, `${walletAddress}.json`);
+            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+            console.log(`Saved raw Range API response to ${filePath}`);
+        } catch (fileError) {
+            console.error('Failed to save raw API response:', fileError);
+        }
+
         console.log('Range API data:', JSON.stringify(data).slice(0, 200));
 
         return parseRangeResponse(walletAddress, data);
@@ -74,54 +67,84 @@ export async function POST(request: NextRequest) {
 }
 
 function parseRangeResponse(walletAddress: string, data: Record<string, unknown>) {
-    // Range API may return different response formats
-    // Try to extract score from various possible fields
-    let score = 75; // Default score
-    let riskLevel: 'low' | 'medium' | 'high' = 'medium';
+    // Range API returns riskScore (1-10), riskLevel, numHops, maliciousAddressesFound, reasoning, attribution
+    let score: number | null = null;
+    let riskLevel: 'low' | 'medium' | 'high' | undefined = undefined;
     let sanctioned = false;
     let flagged = false;
 
-    // Check various possible response formats
-    if (typeof data.score === 'number') {
-        score = data.score;
-    } else if (typeof data.risk_score === 'number') {
-        score = data.risk_score;
-    } else if (typeof data.riskScore === 'number') {
+    // Read riskScore from API response (1-10 scale, where 10 is highest risk)
+    if (typeof data.riskScore === 'number') {
         score = data.riskScore;
-    } else if (typeof data.trust_score === 'number') {
-        score = data.trust_score;
-    } else if (data.risk && typeof (data.risk as Record<string, unknown>).score === 'number') {
-        score = (data.risk as Record<string, unknown>).score as number;
+    } else if (data.riskScore === null || data.riskScore === undefined) {
+        console.warn('riskScore not found in Range API response');
+        score = null;
     }
 
-    // Normalize score to 0-100 if it's a different scale
-    if (score > 100) score = 100;
-    if (score < 0) score = 0;
-
-    // Check for risk level
-    if (data.risk_level) {
-        riskLevel = data.risk_level as 'low' | 'medium' | 'high';
-    } else if (data.riskLevel) {
-        riskLevel = data.riskLevel as 'low' | 'medium' | 'high';
-    } else {
-        riskLevel = score >= 70 ? 'low' : score >= 40 ? 'medium' : 'high';
+    // Read riskLevel from API response
+    if (typeof data.riskLevel === 'string') {
+        const apiRiskLevel = data.riskLevel as string;
+        // Map API risk levels to our internal format
+        if (apiRiskLevel.includes('CRITICAL') || apiRiskLevel.includes('Extremely high')) {
+            riskLevel = 'high';
+            flagged = true;
+        } else if (apiRiskLevel.includes('High risk')) {
+            riskLevel = 'high';
+        } else if (apiRiskLevel.includes('Medium risk')) {
+            riskLevel = 'medium';
+        } else if (apiRiskLevel.includes('Low risk') || apiRiskLevel.includes('Very low risk')) {
+            riskLevel = 'low';
+        }
     }
 
-    // Check for sanctions/flags
-    if (typeof data.sanctioned === 'boolean') sanctioned = data.sanctioned;
-    if (typeof data.flagged === 'boolean') flagged = data.flagged;
-    if (typeof data.is_sanctioned === 'boolean') sanctioned = data.is_sanctioned;
-    if (typeof data.is_flagged === 'boolean') flagged = data.is_flagged;
+    // If riskScore is available but riskLevel wasn't mapped, derive it from score
+    if (score !== null && riskLevel === undefined) {
+        // riskScore 1-10: 1-2 = low, 3-5 = medium, 6-10 = high
+        if (score <= 2) {
+            riskLevel = 'low';
+        } else if (score <= 5) {
+            riskLevel = 'medium';
+        } else {
+            riskLevel = 'high';
+            flagged = true; // High risk scores indicate flagged addresses
+        }
+    }
+
+    // Check if address is directly malicious (numHops === 0 or riskScore === 10)
+    if (data.numHops === 0 || score === 10) {
+        flagged = true;
+        sanctioned = true; // Directly malicious addresses are considered sanctioned
+    }
+
+    // Check for malicious addresses found
+    if (Array.isArray(data.maliciousAddressesFound) && data.maliciousAddressesFound.length > 0) {
+        flagged = true;
+    }
+
+    // Convert riskScore (1-10) to a 0-100 scale for backward compatibility if needed
+    // Higher riskScore (10) = lower trust score (0), Lower riskScore (1) = higher trust score (100)
+    let trustScore: number | null = null;
+    if (score !== null) {
+        // Invert: riskScore 10 -> trustScore 0, riskScore 1 -> trustScore 100
+        trustScore = Math.round(((10 - score) / 9) * 100);
+    }
 
     return NextResponse.json({
         success: true,
         data: {
             address: walletAddress,
-            score,
+            score: trustScore ?? (score !== null ? score * 10 : null), // Convert to 0-100 scale or use score*10
+            riskScore: score, // Include original riskScore (1-10)
             riskLevel,
             details: {
                 sanctioned,
                 flagged,
+                numHops: typeof data.numHops === 'number' ? data.numHops : undefined,
+                reasoning: typeof data.reasoning === 'string' ? data.reasoning : undefined,
+                maliciousAddressesFound: Array.isArray(data.maliciousAddressesFound) 
+                    ? data.maliciousAddressesFound 
+                    : [],
+                attribution: data.attribution || null,
                 lastUpdated: new Date().toISOString(),
                 rawResponse: data,
             },
