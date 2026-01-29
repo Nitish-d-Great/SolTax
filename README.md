@@ -13,12 +13,14 @@ A next-generation payroll solution that enables confidential salary payments whi
 ## 🎯 Problem Statement
 
 Traditional payroll systems expose sensitive financial information:
+- Tax compliance is a big issue in countries currently facing early crypto adoption.
+- People receive salaries but do not pay taxes or miss out on paying taxes timely.
 - **Employees** can see each other's salaries on public blockchains
 - **Competitors** can analyze company compensation strategies
 - **Bad actors** can target high earners
 - Yet **tax authorities** still need verified payment records
 
-**ZK Payroll solves this** by hiding transaction amounts using zero-knowledge proofs while maintaining cryptographic proof of tax compliance.
+**ZK Payroll solves this** by hiding transaction amounts using zero-knowledge proofs while maintaining cryptographic proof of tax compliance. Salaries are received and taxes are paid at the same time - x% of amount goes to tax authority and remaining goes to the employee and thus, tax compliance is fully satisfied - with no theft of tax.
 
 ---
 
