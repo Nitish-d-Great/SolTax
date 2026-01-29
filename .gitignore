@@ -1,0 +1,44 @@
+# Build artifacts
+target/
+node_modules/
+dist/
+
+# Environment files
+.env*
+.env.local
+.env.production
+
+# Anchor artifacts
+.anchor/
+test-ledger/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+
+# TypeScript
+*.tsbuildinfo
+
+# Rust
+**/*.rs.bk
+Cargo.lock
+
+# Keys (never commit)
+*-keypair.json
+*.pem

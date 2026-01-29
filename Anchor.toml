@@ -1,0 +1,19 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+zk_payroll = "APj56TZKsc3mDNBpSik46AtGzQnNKhXG6aTrtciXtRj6"
+
+[programs.devnet]
+zk_payroll = "APj56TZKsc3mDNBpSik46AtGzQnNKhXG6aTrtciXtRj6"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/zkpayroll-keypair.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
