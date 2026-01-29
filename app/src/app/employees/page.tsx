@@ -174,13 +174,23 @@ export default function EmployeesPage() {
                                                 >
                                                     <RefreshCw className={`h-4 w-4 ${rescreening === employee.id ? 'animate-spin' : ''}`} />
                                                 </button>
-                                                <Link
-                                                    href={`/payments?employee=${employee.id}`}
-                                                    className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition"
-                                                    title="Pay salary"
-                                                >
-                                                    <CreditCard className="h-4 w-4" />
-                                                </Link>
+                                                {employee.screeningScore < 50 ? (
+                                                    <div
+                                                        className="p-2 rounded-lg bg-red-500/20 text-red-400 cursor-not-allowed flex items-center gap-1"
+                                                        title="Cannot pay - Risk score too low"
+                                                    >
+                                                        <AlertCircle className="h-4 w-4" />
+                                                        <span className="text-xs">Risky</span>
+                                                    </div>
+                                                ) : (
+                                                    <Link
+                                                        href={`/payments?employee=${employee.id}`}
+                                                        className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition"
+                                                        title="Pay salary"
+                                                    >
+                                                        <CreditCard className="h-4 w-4" />
+                                                    </Link>
+                                                )}
                                                 <button
                                                     className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition"
                                                     title="View details"
