@@ -3,7 +3,9 @@
   base = "app"
   # Build command
   command = "npm install && npm run build"
-  # Publish directory is handled automatically by @netlify/plugin-nextjs
+  # Publish directory - explicitly set to prevent Netlify from defaulting to base directory
+  # Next.js outputs to .next directory within the app folder
+  publish = "app/.next"
 
 [build.environment]
   # Node version
