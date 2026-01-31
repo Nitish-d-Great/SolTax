@@ -64,10 +64,13 @@ function PaymentsContent() {
             console.log('Step 1: Screening employee wallet...');
             const screeningResult = await screenWallet(selectedEmployee.wallet);
 
-            if (!passesScreening(screeningResult.score)) {
-                throw new Error(`Wallet screening failed with score ${screeningResult.score}`);
+            // Use riskScore (1-10) if available, otherwise convert from legacy score
+            const riskScore = screeningResult.riskScore ?? (screeningResult.score / 10);
+            
+            if (!passesScreening(riskScore)) {
+                throw new Error(`Wallet screening failed with risk score ${riskScore}/10`);
             }
-            console.log('Screening passed with score:', screeningResult.score);
+            console.log('Screening passed with risk score:', riskScore, '/10');
 
             // Step 2: Execute confidential payment via ShadowWire
             console.log('Step 2: Processing confidential payment via ShadowWire...');
