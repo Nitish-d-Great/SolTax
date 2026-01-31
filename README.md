@@ -176,6 +176,7 @@ RANGE_API_KEY=your_range_api_key_here
 
 ```bash
 # Start development server
+Clone the repository
 cd app
 npm run dev
 
@@ -267,9 +268,9 @@ Range Protocol provides real-time wallet risk assessment for AML/CFT compliance.
    - Mixer/tumbler associations
    - Historical transaction patterns
 3. **Risk Score**: Returns 0-100 score
-   - **0-30**: Low risk (✅ approved)
-   - **31-49**: Medium risk (⚠️ approved with caution)
-   - **50-100**: High risk (❌ rejected)
+   - **0-3**: Low risk (✅ approved)
+   - **3-6**: Medium risk (⚠️ approved with caution)
+   - **6-10**: High risk (❌ rejected)
 
 ### Implementation
 
