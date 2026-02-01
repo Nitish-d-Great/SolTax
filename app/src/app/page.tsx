@@ -15,9 +15,11 @@ import {
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { getConnection, getPayrollPDA, PROGRAM_ID } from '@/lib/anchor-client';
+import { useEmployees } from '@/providers/EmployeeProvider';
 
 export default function Dashboard() {
   const { publicKey, connected } = useWallet();
+  const { employees } = useEmployees();
   const [stats, setStats] = useState({
     employeeCount: 0,
     paymentCount: 0,
@@ -27,8 +29,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Always show employee count from localStorage
+    setStats(prev => ({
+      ...prev,
+      employeeCount: employees.length,
+    }));
+  }, [employees]);
+
+  useEffect(() => {
     if (connected && publicKey) {
       fetchPayrollStats();
+    } else {
+      // Show demo data when not connected or as fallback
+      setStats(prev => ({
+        ...prev,
+        paymentCount: prev.paymentCount || 0,
+        pendingVerifications: prev.pendingVerifications || 0,
+        initialized: true,
+      }));
     }
   }, [connected, publicKey]);
 
@@ -44,15 +62,30 @@ export default function Dashboard() {
 
       if (accountInfo) {
         // Parse account data (simplified)
-        setStats({
-          employeeCount: 3, // Demo data
-          paymentCount: 12,
+        setStats(prev => ({
+          ...prev,
+          paymentCount: 12, // Demo data
           pendingVerifications: 2,
           initialized: true,
-        });
+        }));
+      } else {
+        // Account doesn't exist yet, show demo data as fallback
+        setStats(prev => ({
+          ...prev,
+          paymentCount: 0,
+          pendingVerifications: 0,
+          initialized: true,
+        }));
       }
     } catch (error) {
       console.error('Error fetching payroll stats:', error);
+      // On error, still mark as initialized with default values
+      setStats(prev => ({
+        ...prev,
+        paymentCount: 0,
+        pendingVerifications: 0,
+        initialized: true,
+      }));
     } finally {
       setLoading(false);
     }
