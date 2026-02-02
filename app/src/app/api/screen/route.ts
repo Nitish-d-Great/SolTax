@@ -15,12 +15,24 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const apiKey = process.env.RANGE_API_KEY;
+        // Get API key from environment variables
+        // On Netlify, this should be set in Site Settings > Environment Variables
+        // Try multiple ways to access the variable (for different deployment platforms)
+        const apiKey = process.env.RANGE_API_KEY 
+            || process.env['RANGE_API_KEY']
+            || (process.env as any).RANGE_API_KEY;
 
-        if (!apiKey) {
-            console.warn('Range API key not configured, using mock response');
+        if (!apiKey || apiKey.trim() === '') {
+            console.error('❌ Range API key not configured!');
+            console.error('Environment check - RANGE_API_KEY exists:', !!process.env.RANGE_API_KEY);
+            console.error('Environment check - RANGE_API_KEY value length:', process.env.RANGE_API_KEY?.length || 0);
+            console.error('Available env vars with RANGE/API:', Object.keys(process.env).filter(k => k.includes('RANGE') || k.includes('API')).join(', ') || 'none');
+            console.error('To fix: Set RANGE_API_KEY in Netlify Dashboard > Site Settings > Environment Variables');
+            console.error('Then redeploy the site for changes to take effect');
             return mockResponse(walletAddress);
         }
+
+        console.log('✅ Range API key found, using real API');
 
         // Call real Range API
         const url = `${RANGE_API_URL}/risk/address?address=${encodeURIComponent(walletAddress)}&network=${blockchain}`;
@@ -37,8 +49,24 @@ export async function POST(request: NextRequest) {
         console.log('Range API response status:', response.status);
 
         if (!response.ok) {
-            console.error('Range API failed:', response.status);
-            return mockResponse(walletAddress, true, response.status);
+            const errorText = await response.text().catch(() => 'Unknown error');
+            console.error('❌ Range API failed:', response.status, errorText);
+            
+            // Only use mock if it's a 401/403 (auth error) - otherwise it might be a real API issue
+            if (response.status === 401 || response.status === 403) {
+                console.error('Authentication failed - check RANGE_API_KEY is correct');
+                return mockResponse(walletAddress, true, response.status);
+            }
+            
+            // For other errors, return error response instead of mock
+            return NextResponse.json(
+                { 
+                    success: false, 
+                    error: `Range API error: ${response.status}`,
+                    message: 'Failed to screen wallet address'
+                },
+                { status: response.status }
+            );
         }
 
         const data = await response.json();
@@ -154,16 +182,20 @@ function parseRangeResponse(walletAddress: string, data: Record<string, unknown>
 }
 
 function mockResponse(walletAddress: string, fallback = false, apiError?: number) {
-    const mockScore = Math.floor(Math.random() * 40) + 60; // 60-100
+    // Generate mock riskScore (1-10 scale) - random between 1-8 for demo
+    const mockRiskScore = Math.floor(Math.random() * 8) + 1; // 1-8
+    const riskLevel = mockRiskScore <= 2 ? 'low' : mockRiskScore <= 6 ? 'medium' : 'high';
+    
     return NextResponse.json({
         success: true,
         data: {
             address: walletAddress,
-            score: mockScore,
-            riskLevel: mockScore >= 70 ? 'low' : mockScore >= 40 ? 'medium' : 'high',
+            score: Math.round(((10 - mockRiskScore) / 9) * 100), // Convert to 0-100 for backward compatibility
+            riskScore: mockRiskScore, // Use riskScore (1-10) scale
+            riskLevel,
             details: {
                 sanctioned: false,
-                flagged: false,
+                flagged: mockRiskScore > 6,
                 lastUpdated: new Date().toISOString(),
             },
             mock: !fallback,
